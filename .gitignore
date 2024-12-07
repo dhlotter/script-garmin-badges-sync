@@ -1,0 +1,5 @@
+.env
+.garth
+.garminbadges
+*.pyc
+__pycache__/

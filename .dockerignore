@@ -1,0 +1,12 @@
+.git
+.env
+.garth
+.garminbadges
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+.DS_Store
+README.md

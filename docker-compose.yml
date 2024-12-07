@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  garmin-badges-sync:
+    build: .
+    container_name: utilities_garmin_badges_sync
+    restart: unless-stopped
+    environment:
+      - GARMIN_BADGES_USERNAME=${GARMIN_BADGES_USERNAME}
+      - GARMIN_BADGES_EMAIL=${GARMIN_BADGES_EMAIL}
+      - GARMIN_CONNECT_USERNAME=${GARMIN_CONNECT_USERNAME}
+      - GARMIN_CONNECT_PASSWORD=${GARMIN_CONNECT_PASSWORD}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - utilities_garmin_badges_sync_volume:/home/appuser/data
+    networks:
+      - utilities_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  utilities_network:
+    external: true
+
+volumes:
+  utilities_garmin_badges_sync_volume:
+    name: utilities_garmin_badges_sync_volume
+    driver: local
