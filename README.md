@@ -1,96 +1,92 @@
 # Garmin Badges Sync
 
-## Overview
-This script synchronizes badges from Garmin Connect to Garmin Badges, providing an automated way to track and update your earned achievements.
+A Docker-based application to sync Garmin badges and activities.
 
-## Features
-- Authenticate with Garmin Connect
-- Retrieve earned badges
-- Upload badges to Garmin Badges
-- Robust error handling and retry mechanisms
-- Multiple authentication strategies
-
-## Prerequisites
-- Python 3.8+
-- Garmin Connect account
-- Garmin Badges account
-
-## Installation
+## Server Deployment
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/garmin-badges-sync.git
+git clone https://github.com/dhlotter/garmin-badges-sync.git
 cd garmin-badges-sync
 ```
 
-### 2. Create a Virtual Environment (Optional but Recommended)
+### 2. Set Up Environment
+Create and configure your `.env` file:
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+cp .env.example .env
+nano .env  # or use your preferred text editor
 ```
 
-### 3. Install Dependencies
+### 3. Deploy with Docker
+Build and start the container:
 ```bash
-pip install -r requirements.txt
+docker compose build
+docker compose up -d
 ```
 
-## Configuration
-
-### Environment Variables
-Create a `.env` file in the project root with the following variables:
-```
-GARMIN_CONNECT_USERNAME=your_garmin_connect_email
-GARMIN_CONNECT_PASSWORD=your_garmin_connect_password
-GARMIN_BADGES_USERNAME=your_garmin_badges_username
-GARMIN_BADGES_EMAIL=your_garmin_badges_email
-```
-
-## Usage
-
-### Running the Script
+### 4. Schedule Regular Syncs
+Add to crontab to run daily:
 ```bash
-python sync.py
+# Edit crontab
+crontab -e
+
+# Add this line to run daily at 2 AM
+0 2 * * * cd /path/to/garmin-badges-sync && docker compose restart
 ```
 
-### Command Line Arguments
-- `--V`: Enable verbose/debug mode
-- `--garmin`: Open Garmin Connect badges page
-- `--garminbadges`: Open Garmin Badges website
+## Monitoring
+
+View logs:
+```bash
+docker compose logs -f
+```
+
+Check container status:
+```bash
+docker compose ps
+```
+
+Stop the service:
+```bash
+docker compose down
+```
+
+## Requirements
+
+- Git
+- Docker and Docker Compose
+- Cron (for scheduling)
 
 ## Troubleshooting
-- Check `garmin_sync.log` for detailed error logs
-- Ensure your Garmin Connect credentials are correct
-- Verify network connectivity
-- Be aware of Garmin's rate limiting policies
+
+1. Check container logs:
+```bash
+docker compose logs -f
+```
+
+2. Verify environment variables:
+```bash
+docker compose config
+```
+
+3. Restart the container:
+```bash
+docker compose restart
+```
+
+4. Full rebuild if needed:
+```bash
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
 
 ## Security Notes
-- Never commit your `.env` file to version control
-- Use strong, unique passwords
-- Consider using environment-specific configurations
 
-## Contributing
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+- Keep your `.env` file secure and never commit it to Git
+- Use appropriate file permissions for the `.env` file (600)
+- Regularly update your Docker images for security patches
 
 ## License
-Distributed under the MIT License. See `LICENSE` for more information.
 
-## Contact
-Your Name - your.email@example.com
-
-Project Link: [https://github.com/yourusername/garmin-badges-sync](https://github.com/yourusername/garmin-badges-sync)
-
-
-
-# Things on the ToDo list
-1. create working script to sync garmin connect reliably to garmin badges
-2. action 
-3. action 
-4. action
-
-## links 
-- https://connect.garmin.com/modern/badges
-- https://garminbadges.com/
+[MIT License](LICENSE)
