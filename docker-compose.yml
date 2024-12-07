@@ -1,5 +1,4 @@
-version: '3.8'
-
+name: utilities
 services:
   garmin-badges-sync:
     build: .

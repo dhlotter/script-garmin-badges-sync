@@ -20,6 +20,7 @@ import webbrowser
 from dotenv import load_dotenv
 from pythonjsonlogger import jsonlogger
 import datetime
+import time
 
 # Global variables
 userId = 0
@@ -177,12 +178,38 @@ def loginToGarminBadgesAndConnect(configFileName):
             with open(configFileName, 'w') as f:
                 json.dump(config, f)
 
-            # Login to Garmin Connect
-            try:
-                garth.login(gc_email, gc_password)
-                garth.save(os.path.join(os.path.expanduser('~'), "data", ".garth"))
-            except Exception as e:
-                raise Exception(f"Failed to login to Garmin Connect: {str(e)}")
+            # Login to Garmin Connect with exponential backoff retry
+            max_retries = 5
+            base_delay = 3  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.info(f"Attempting to login to Garmin Connect (attempt {attempt + 1}/{max_retries})")
+                    
+                    # Clear any existing session
+                    garth.client.clear()
+                    
+                    # Attempt login
+                    garth.login(gc_email, gc_password)
+                    
+                    # Test the connection by making a simple API call
+                    test_response = garth.connectapi("/userprofile-service/userprofile")
+                    if test_response:
+                        logger.info("Successfully connected to Garmin Connect")
+                        garth.save(os.path.join(os.path.expanduser('~'), "data", ".garth"))
+                        break
+                    else:
+                        raise Exception("Failed to verify connection")
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if attempt == max_retries - 1:  # Last attempt
+                        raise Exception(f"Failed to login to Garmin Connect after {max_retries} attempts: {error_msg}")
+                    
+                    logger.warning(f"Login attempt {attempt + 1} failed: {error_msg}")
+                    logger.info(f"Waiting {delay} seconds before next attempt...")
+                    time.sleep(delay)
 
     except Exception as e:
         logger.error(f"Error during login process: {str(e)}")

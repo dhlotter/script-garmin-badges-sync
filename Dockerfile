@@ -2,7 +2,7 @@
 FROM python:3.11-alpine as builder
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev libffi-dev
+RUN apk add --no-cache gcc musl-dev libffi-dev openssl-dev python3-dev
 
 # Create and work in /app
 WORKDIR /app
@@ -16,6 +16,9 @@ RUN python -m venv /opt/venv && \
 
 # Final stage
 FROM python:3.11-alpine
+
+# Install runtime dependencies
+RUN apk add --no-cache openssl ca-certificates
 
 # Copy virtual env from builder
 COPY --from=builder /opt/venv /opt/venv
