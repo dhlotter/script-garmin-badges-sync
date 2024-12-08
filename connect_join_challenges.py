@@ -141,18 +141,58 @@ def setup_driver(headless=True):
         
         if headless:
             options.add_argument('--headless=new')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-setuid-sandbox')
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--start-maximized')
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument('--use-fake-ui-for-media-stream')
+            options.add_argument('--disable-extensions')
+            options.add_argument('--disable-popup-blocking')
+            options.add_argument('--ignore-certificate-errors')
+            options.add_argument('--no-first-run')
+            options.add_argument('--no-service-autorun')
+            options.add_argument('--password-store=basic')
+            options.add_argument('--lang=en-US')
+            
+            # Set user agent
+            options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # Common options
-        options.add_argument('--no-sandbox')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--start-maximized')
-        options.add_argument('--disable-gpu')
-        
-        # Let undetected_chromedriver handle its own chromedriver
+        # Create undetected Chrome driver
         driver = uc.Chrome(
             options=options,
             headless=headless,
         )
+        
+        if headless:
+            # Additional JavaScript patches for headless mode
+            driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                "userAgent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
+            
+            # Modify navigator.webdriver flag
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            
+            # Add additional properties to make headless more stealthy
+            driver.execute_script("""
+                // Overwrite the 'navigator' property to include common plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                // Add language preferences
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Add a fake notification API
+                window.Notification = {
+                    permission: 'default',
+                    requestPermission: async () => 'default'
+                };
+            """)
         
         return driver
         
@@ -419,44 +459,47 @@ def main():
             logger.error("Missing required environment variables")
             return
         
-        # Always run in visible mode since Garmin blocks headless browsers
-        logger.info("Starting browser in visible mode...")
-        driver = setup_driver(headless=False)
+        # Initialize driver in headless mode
+        logger.info("Starting browser in headless mode...")
+        driver = setup_driver(headless=True)
         
-        # Check if we need Cloudflare verification
-        if check_cloudflare(driver, "https://sso.garmin.com/portal/sso/en-US/sign-in"):
-            # Wait for user to handle Cloudflare
-            print("\nPlease complete any Cloudflare verification if needed.")
-            print("Once the login page is fully loaded, press Enter to continue...")
-            print("If you want to exit, press Ctrl+C")
-            try:
-                input()
-            except KeyboardInterrupt:
-                logger.info("User interrupted the script")
+        try:
+            # Check if we need Cloudflare verification
+            if check_cloudflare(driver, "https://sso.garmin.com/portal/sso/en-US/sign-in"):
+                # Wait for user to handle Cloudflare
+                print("\nPlease complete any Cloudflare verification if needed.")
+                print("Once the login page is fully loaded, press Enter to continue...")
+                print("If you want to exit, press Ctrl+C")
+                try:
+                    input()
+                except KeyboardInterrupt:
+                    logger.info("User interrupted the script")
+                    driver.quit()
+                    return
+                except EOFError:
+                    logger.warning("EOF encountered, continuing anyway...")
+                    time.sleep(5)
+            
+            # Attempt to log in
+            if not login_to_garmin(driver, email, password):
+                logger.error("Failed to log in")
                 driver.quit()
                 return
-            except EOFError:
-                logger.warning("EOF encountered, continuing anyway...")
-                time.sleep(5)
-        
-        # Attempt to log in
-        if not login_to_garmin(driver, email, password):
-            logger.error("Failed to log in")
-            driver.quit()
-            return
+                
+            # Join challenges
+            join_challenges(driver)
             
-        # Join challenges
-        join_challenges(driver)
-        
+        except Exception as e:
+            logger.error(f"Script failed: {str(e)}")
+        finally:
+            # Always close the browser
+            try:
+                driver.quit()
+            except:
+                pass
+            
     except Exception as e:
         logger.error(f"Script failed: {str(e)}")
-        if hasattr(e, '__cause__') and e.__cause__:
-            logger.error(f"Caused by: {str(e.__cause__)}")
-    finally:
-        try:
-            driver.quit()
-        except:
-            pass
 
 if __name__ == "__main__":
     main()
