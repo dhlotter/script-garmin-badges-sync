@@ -28,12 +28,16 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Create an SSL context that doesn't verify certificates
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+def setup_logging():
+    """Setup logging configuration"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
 
 def get_system_info():
     """Get system OS and architecture information"""
@@ -360,7 +364,7 @@ def wait_for_challenges_page(driver):
 def join_challenges(driver):
     """Join all available challenges"""
     try:
-        logger.info("Navigating to challenges page...")
+        print("\n=== Navigating to Challenges Page ===")
         driver.get("https://connect.garmin.com/modern/challenge")
         
         if not wait_for_challenges_page(driver):
@@ -370,12 +374,15 @@ def join_challenges(driver):
         # Wait a bit more for dynamic content
         time.sleep(5)
         
-        # Log page source for debugging
-        logger.info("Page source length: %d", len(driver.page_source))
-        
         # Find all Join buttons
         join_buttons = driver.find_elements(By.XPATH, "//button[text()='Join']")
-        logger.info(f"Found {len(join_buttons)} join buttons")
+        total_challenges = len(join_buttons)
+        
+        if total_challenges == 0:
+            print("\n✨ No new challenges found to join!")
+            return
+            
+        print(f"\n=== Found {total_challenges} Challenge{'s' if total_challenges > 1 else ''} to Join ===")
         
         challenges_joined = 0
         for button in join_buttons:
@@ -407,10 +414,10 @@ def join_challenges(driver):
                         challenge_name = "Unknown Challenge"
                         
                 except Exception as e:
-                    logger.warning(f"Could not get challenge details: {str(e)}")
+                    logger.debug(f"Could not get challenge details: {str(e)}")
                     challenge_name = "Unknown Challenge"
                 
-                logger.info(f"Attempting to join challenge: {challenge_name}")
+                print(f"\n🎯 Joining challenge ({challenges_joined + 1}/{total_challenges}): {challenge_name}")
                 
                 # Scroll the button into view with offset to avoid header overlap
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
@@ -430,14 +437,20 @@ def join_challenges(driver):
                         actions.move_to_element(button).click().perform()
                 
                 challenges_joined += 1
-                logger.info(f"Successfully joined challenge {challenges_joined}: {challenge_name}")
+                print(f"✅ Successfully joined: {challenge_name}")
                 time.sleep(2)  # Wait between joins
                 
             except Exception as e:
-                logger.error(f"Error joining challenge '{challenge_name}': {str(e)}")
+                print(f"❌ Failed to join: {challenge_name}")
+                logger.error(f"Error details: {str(e)}")
                 # Try to scroll past this button and continue
                 driver.execute_script("window.scrollBy(0, 100);")
                 continue
+        
+        print(f"\n=== Summary ===")
+        print(f"✨ Successfully joined {challenges_joined} out of {total_challenges} challenge{'s' if total_challenges > 1 else ''}")
+        if challenges_joined < total_challenges:
+            print(f"⚠️  Failed to join {total_challenges - challenges_joined} challenge{'s' if (total_challenges - challenges_joined) > 1 else ''}")
         
         return challenges_joined
         
@@ -451,46 +464,30 @@ def main():
         # Load environment variables
         load_dotenv()
         
-        # Get Garmin credentials
-        email = os.getenv('GARMIN_CONNECT_USERNAME')
-        password = os.getenv('GARMIN_CONNECT_PASSWORD')
+        # Get credentials from environment variables
+        email = os.getenv("GARMIN_CONNECT_USERNAME")
+        password = os.getenv("GARMIN_CONNECT_PASSWORD")
         
-        if not all([email, password]):
-            logger.error("Missing required environment variables")
+        if not email or not password:
+            print("❌ Error: Missing Garmin Connect credentials")
+            print("Please set GARMIN_CONNECT_USERNAME and GARMIN_CONNECT_PASSWORD environment variables")
             return
         
-        # Initialize driver in headless mode
-        logger.info("Starting browser in headless mode...")
+        print("\n=== Starting Garmin Challenge Joiner ===")
+        print("🔄 Initializing browser in headless mode...")
         driver = setup_driver(headless=True)
         
         try:
-            # Check if we need Cloudflare verification
-            if check_cloudflare(driver, "https://sso.garmin.com/portal/sso/en-US/sign-in"):
-                # Wait for user to handle Cloudflare
-                print("\nPlease complete any Cloudflare verification if needed.")
-                print("Once the login page is fully loaded, press Enter to continue...")
-                print("If you want to exit, press Ctrl+C")
-                try:
-                    input()
-                except KeyboardInterrupt:
-                    logger.info("User interrupted the script")
-                    driver.quit()
-                    return
-                except EOFError:
-                    logger.warning("EOF encountered, continuing anyway...")
-                    time.sleep(5)
-            
-            # Attempt to log in
+            print("\n=== Logging in to Garmin Connect ===")
             if not login_to_garmin(driver, email, password):
-                logger.error("Failed to log in")
-                driver.quit()
+                print("❌ Failed to log in to Garmin Connect")
                 return
                 
             # Join challenges
             join_challenges(driver)
             
         except Exception as e:
-            logger.error(f"Script failed: {str(e)}")
+            print(f"\n❌ Script failed: {str(e)}")
         finally:
             # Always close the browser
             try:
@@ -499,7 +496,7 @@ def main():
                 pass
             
     except Exception as e:
-        logger.error(f"Script failed: {str(e)}")
+        print(f"\n❌ Script failed: {str(e)}")
 
 if __name__ == "__main__":
     main()
