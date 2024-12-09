@@ -1,8 +1,25 @@
 # Garmin Badges Sync
 
-A Docker-based application to sync Garmin badges and activities.
+A collection of Python scripts to sync Garmin badges and manage Garmin Connect challenges.
 
-## Server Deployment
+## Scripts Overview
+
+### 1. garmin-badges-updater.py
+The main script that syncs your Garmin Connect to Garmin Badges. It:
+- Fetches all earned badges from your Garmin Connect account
+- Processes both regular and challenge badges
+- Handles retired badges gracefully
+- Updates your profile on garminbadges.com
+- Provides detailed logging of the sync process
+
+### 2. garmin-connect-challenges.py
+A utility script to manage Garmin Connect challenges. It can:
+- List available challenges
+- Join challenges automatically
+- Filter challenges by type and date
+- Show challenge details and requirements
+
+## Setup Instructions
 
 ### 1. Clone the Repository
 ```bash
@@ -10,82 +27,103 @@ git clone https://github.com/dhlotter/garmin-badges-sync.git
 cd garmin-badges-sync
 ```
 
-### 2. Set Up Environment
-Create and configure your `.env` file:
+### 2. Set Up Python Environment
 ```bash
-cp .env.example .env
-nano .env  # or use your preferred text editor
+# Create a virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install required packages
+pip install -r requirements.txt
 ```
 
-### 3. Deploy with Docker
-Build and start the container:
+### 3. Configure Cloudflare Certificate (if using Cloudflare WARP)
 ```bash
-docker compose build
-docker compose up -d
+# Install certifi
+pip install certifi
+
+# Download Cloudflare root certificate
+wget https://developers.cloudflare.com/cloudflare-one/static/documentation/connections/Cloudflare_CA.pem
+
+# Append to CA store
+cat Cloudflare_CA.pem >> $(python -m certifi)
+
+# Set environment variables
+export CERT_PATH=$(python -m certifi)
+export SSL_CERT_FILE=${CERT_PATH}
+export REQUESTS_CA_BUNDLE=${CERT_PATH}
 ```
 
-### 4. Schedule Regular Syncs
+### 4. Set Up Environment Variables
+Create a `.env` file in the project root:
+```bash
+GARMIN_BADGES_USERNAME=your_garminbadges_username
+GARMIN_BADGES_EMAIL=your_garminbadges_email
+GARMIN_CONNECT_USERNAME=your_garmin_connect_email
+GARMIN_CONNECT_PASSWORD=your_garmin_connect_password
+```
+
+## Running the Scripts
+
+### Manual Execution
+```bash
+# Sync badges
+python garmin-badges-updater.py
+
+# Additional options:
+python garmin-badges-updater.py --help  # Show all options
+python garmin-badges-updater.py --V     # Run in verbose mode
+```
+
+### Automated Scheduling
+
+#### Using Cron (Linux/macOS)
 Add to crontab to run daily:
 ```bash
 # Edit crontab
 crontab -e
 
-# Add this line to run daily at 2 AM
-0 2 * * * cd /path/to/garmin-badges-sync && docker compose restart
+# Add this line to run daily at 2 AM (adjust paths as needed)
+0 2 * * * cd /path/to/garmin-badges-sync && source venv/bin/activate && python garmin-badges-updater.py >> sync.log 2>&1
 ```
 
-## Monitoring
+#### Using Task Scheduler (Windows)
+1. Open Task Scheduler
+2. Create a new Basic Task
+3. Set the trigger (e.g., daily at 2 AM)
+4. Action: Start a program
+5. Program/script: `path\to\venv\Scripts\python.exe`
+6. Arguments: `path\to\garmin-badges-updater.py`
+7. Start in: `path\to\garmin-badges-sync`
 
-View logs:
-```bash
-docker compose logs -f
-```
+## Monitoring and Troubleshooting
 
-Check container status:
-```bash
-docker compose ps
-```
+### Logging
+The script uses Python's logging module and outputs:
+- INFO level: Normal operation updates
+- WARNING level: Non-critical issues
+- ERROR level: Critical problems
+- DEBUG level: Detailed information (with --V flag)
 
-Stop the service:
-```bash
-docker compose down
-```
+### Common Issues
+1. SSL/Certificate errors:
+   - Verify Cloudflare certificate setup
+   - Check SSL environment variables
 
-## Requirements
+2. Authentication failures:
+   - Verify environment variables are set correctly
+   - Check Garmin Connect credentials
 
-- Git
-- Docker and Docker Compose
-- Cron (for scheduling)
-
-## Troubleshooting
-
-1. Check container logs:
-```bash
-docker compose logs -f
-```
-
-2. Verify environment variables:
-```bash
-docker compose config
-```
-
-3. Restart the container:
-```bash
-docker compose restart
-```
-
-4. Full rebuild if needed:
-```bash
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-```
+3. API errors:
+   - Check internet connectivity
+   - Verify API endpoints are accessible
 
 ## Security Notes
 
 - Keep your `.env` file secure and never commit it to Git
 - Use appropriate file permissions for the `.env` file (600)
-- Regularly update your Docker images for security patches
+- Store credentials securely when setting up automated runs
+- Regularly update your Python packages for security patches
 
 ## License
 
