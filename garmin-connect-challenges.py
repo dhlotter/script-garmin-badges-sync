@@ -3,11 +3,12 @@
 import os
 import time
 import logging
+import json
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from dotenv import load_dotenv
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -21,6 +22,8 @@ import shutil
 import requests
 from selenium.webdriver import ActionChains
 import undetected_chromedriver as uc
+from xvfbwrapper import Xvfb
+import random
 
 # Disable SSL verification warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -66,16 +69,31 @@ def get_system_info():
     return system, arch
 
 def get_chrome_version():
-    """Get the installed Chrome version"""
+    """Get the installed Chrome/Chromium version"""
     try:
-        # On macOS, Chrome is typically installed here
-        chrome_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-        result = subprocess.run([chrome_path, '--version'], capture_output=True, text=True)
-        version = result.stdout.strip().split()[-1].split('.')[0]  # Get major version
-        return version
-    except Exception as e:
-        logger.error(f"Failed to get Chrome version: {str(e)}")
-        return None
+        # Try chromium-browser first (common on Linux)
+        result = subprocess.run(['chromium-browser', '--version'], 
+                              capture_output=True, 
+                              text=True)
+        if result.returncode == 0:
+            version = result.stdout.strip().split()[-1].split('.')[0]
+            return int(version)
+    except:
+        pass
+    
+    try:
+        # Try chrome as fallback
+        result = subprocess.run(['google-chrome', '--version'], 
+                              capture_output=True, 
+                              text=True)
+        if result.returncode == 0:
+            version = result.stdout.strip().split()[-1].split('.')[0]
+            return int(version)
+    except:
+        pass
+    
+    # Default to latest known version if detection fails
+    return 131
 
 def download_chromedriver(system, arch):
     """Download ChromeDriver based on system and architecture"""
@@ -138,70 +156,63 @@ def download_chromedriver(system, arch):
         raise
 
 def setup_driver(headless=True):
-    """Setup Chrome driver with appropriate options"""
+    """Setup undetected-chromedriver with appropriate options"""
     try:
-        # Use undetected-chromedriver options
+        logger.info("Setting up Chrome options...")
         options = uc.ChromeOptions()
         
-        if headless:
-            options.add_argument('--headless=new')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--disable-setuid-sandbox')
-            options.add_argument('--window-size=1920,1080')
-            options.add_argument('--start-maximized')
-            options.add_argument('--disable-blink-features=AutomationControlled')
-            options.add_argument('--use-fake-ui-for-media-stream')
-            options.add_argument('--disable-extensions')
-            options.add_argument('--disable-popup-blocking')
-            options.add_argument('--ignore-certificate-errors')
-            options.add_argument('--no-first-run')
-            options.add_argument('--no-service-autorun')
-            options.add_argument('--password-store=basic')
-            options.add_argument('--lang=en-US')
-            
-            # Set user agent
-            options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        # Anti-detection options
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('--disable-blink-features')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--ignore-certificate-errors')
+        options.add_argument('--start-maximized')
+        options.add_argument('--enable-javascript')
+        options.add_argument('--enable-cookies')
         
-        # Create undetected Chrome driver
+        # Network settings
+        options.add_argument('--dns-prefetch-disable')
+        options.add_argument('--no-proxy-server')
+        options.add_argument('--disable-web-security')
+        
+        # Set realistic user agent
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        
+        logger.info("Creating Chrome driver...")
         driver = uc.Chrome(
             options=options,
             headless=headless,
+            use_subprocess=True,
+            version_main=131,
+            suppress_welcome=True
         )
         
-        if headless:
-            # Additional JavaScript patches for headless mode
-            driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            })
-            
-            # Modify navigator.webdriver flag
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            # Add additional properties to make headless more stealthy
-            driver.execute_script("""
-                // Overwrite the 'navigator' property to include common plugins
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5],
-                });
-                
-                // Add language preferences
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en'],
-                });
-                
-                // Add a fake notification API
-                window.Notification = {
-                    permission: 'default',
-                    requestPermission: async () => 'default'
-                };
-            """)
+        # Additional stealth settings
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
+        # Add language and plugins to make it look more realistic
+        driver.execute_script("""
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+        """)
+        
+        # Set timeouts
+        driver.set_page_load_timeout(30)  # Reduced timeout to fail faster
+        driver.implicitly_wait(10)  # Reduced implicit wait
+        
+        logger.info("Chrome driver setup complete")
         return driver
         
     except Exception as e:
         logger.error(f"Failed to setup driver: {str(e)}")
+        if isinstance(e, WebDriverException):
+            logger.error(f"WebDriver error details: {e.msg}")
         raise
 
 def check_cloudflare(driver, url):
@@ -222,121 +233,87 @@ def check_cloudflare(driver, url):
         return False
 
 def login_to_garmin(driver, email, password):
-    """Login to Garmin Connect"""
+    """Log in to Garmin Connect"""
     try:
         logger.info("Attempting to log in to Garmin Connect...")
         
-        # Go directly to the SSO sign-in page with the correct parameters
-        login_url = "https://sso.garmin.com/portal/sso/en-US/sign-in?clientId=GarminConnect&service=https%3A%2F%2Fconnect.garmin.com%2Fmodern"
-        driver.get(login_url)
+        # Go directly to Garmin Connect signin
+        logger.info("Navigating to Garmin Connect signin...")
+        try:
+            driver.get("https://connect.garmin.com/signin")
+            logger.info(f"Current URL: {driver.current_url}")
+        except Exception as e:
+            logger.error(f"Failed to load signin page: {str(e)}")
+            # Try to get network status
+            try:
+                driver.execute_script("return navigator.onLine;")
+                logger.info("Browser reports online status: true")
+            except:
+                logger.error("Failed to get online status")
+            raise
         
-        # Wait for potential Cloudflare check
-        logger.info("Waiting for page to be ready (including potential Cloudflare verification)...")
+        # Wait for iframe with explicit timeout handling
+        logger.info("Waiting for login iframe...")
+        try:
+            iframe_wait = WebDriverWait(driver, 20)
+            iframe = iframe_wait.until(EC.presence_of_element_located((By.ID, "gauth-widget-frame-gauth-widget")))
+            logger.info("Login iframe found")
+        except TimeoutException:
+            logger.error("Timed out waiting for login iframe")
+            # Log the page source for debugging
+            logger.error(f"Page source: {driver.page_source[:500]}...")  # First 500 chars
+            raise
         
-        # Wait for login form to be fully loaded and interactive
-        logger.info("Waiting for login form to be ready...")
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.NAME, "email"))
-        )
-        WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.NAME, "email"))
-        )
-        time.sleep(2)  # Additional wait for any animations
+        logger.info("Switching to login iframe...")
+        driver.switch_to.frame(iframe)
         
-        logger.info("Entering credentials...")
-        
-        # Wait for and fill in email
+        # Enter credentials slowly and naturally
         logger.info("Waiting for email field...")
         email_field = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.NAME, "email"))
+            EC.presence_of_element_located((By.ID, "email"))
         )
-        logger.info("Found email field, entering email...")
+        
+        logger.info("Entering email...")
         email_field.clear()
-        email_field.send_keys(email)
-        time.sleep(1)
+        for char in email:
+            email_field.send_keys(char)
+            time.sleep(random.uniform(0.1, 0.3))
         
-        # Fill in password
-        logger.info("Waiting for password field...")
-        password_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "password"))
-        )
-        logger.info("Found password field, entering password...")
+        time.sleep(random.uniform(0.5, 1.5))
+        
+        logger.info("Entering password...")
+        password_field = driver.find_element(By.ID, "password")
         password_field.clear()
-        password_field.send_keys(password)
-        time.sleep(1)
+        for char in password:
+            password_field.send_keys(char)
+            time.sleep(random.uniform(0.1, 0.3))
         
-        # Click the button
-        logger.info("Looking for sign in button...")
-        submit_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+        time.sleep(random.uniform(0.5, 1.5))
+        
+        logger.info("Clicking sign in button...")
+        sign_in_button = driver.find_element(By.ID, "login-btn-signin")
+        sign_in_button.click()
+        
+        logger.info("Waiting for login to complete...")
+        WebDriverWait(driver, 30).until(
+            lambda x: "modern/dashboard" in x.current_url
         )
-        logger.info("Found sign in button, clicking...")
         
-        # Try multiple click methods for the submit button
-        try:
-            # Try JavaScript click first
-            driver.execute_script("arguments[0].click();", submit_button)
-        except:
-            try:
-                # Try regular click
-                submit_button.click()
-            except:
-                # Try moving to element first
-                actions = ActionChains(driver)
-                actions.move_to_element(submit_button).click().perform()
+        logger.info("Successfully logged in!")
+        return True
         
-        # Wait for redirect to modern interface
-        logger.info("Waiting for redirect to Garmin Connect...")
-        try:
-            # First wait for URL change
-            WebDriverWait(driver, 45).until(
-                lambda x: x.current_url != login_url
-            )
-            logger.info(f"URL changed to: {driver.current_url}")
-            
-            # Then wait for final redirect
-            WebDriverWait(driver, 45).until(
-                lambda x: "connect.garmin.com/modern" in x.current_url
-            )
-            logger.info(f"Final URL: {driver.current_url}")
-            
-            # Wait for login to fully complete
-            logger.info("Waiting for login to fully complete...")
-            time.sleep(5)
-            
-            # Navigate directly to challenges page
-            logger.info("Navigating to challenges page...")
-            driver.get("https://connect.garmin.com/modern/challenge")
-            
-            return True
-            
-        except Exception as e:
-            # Take screenshot
-            screenshot_path = "login_error.png"
-            driver.save_screenshot(screenshot_path)
-            logger.error(f"Screenshot saved to {screenshot_path}")
-            
-            # Try to find error messages
-            try:
-                error_messages = driver.find_elements(By.CLASS_NAME, "error-message")
-                for msg in error_messages:
-                    logger.error(f"Error message found: {msg.text}")
-            except:
-                pass
-                
-            try:
-                error_messages = driver.find_elements(By.CLASS_NAME, "alert-danger")
-                for msg in error_messages:
-                    logger.error(f"Alert message found: {msg.text}")
-            except:
-                pass
-            
-            raise
-            
     except Exception as e:
         logger.error(f"Failed to log in: {str(e)}")
-        if hasattr(e, '__cause__') and e.__cause__:
-            logger.error(f"Caused by: {str(e.__cause__)}")
+        try:
+            screenshot_path = "login_failure.png"
+            driver.save_screenshot(screenshot_path)
+            logger.info(f"Screenshot saved to {screenshot_path}")
+            
+            # Log additional debugging information
+            logger.error(f"Current URL: {driver.current_url}")
+            logger.error(f"Page source: {driver.page_source[:500]}...")  # First 500 chars
+        except Exception as screenshot_error:
+            logger.error(f"Failed to capture debug info: {str(screenshot_error)}")
         return False
 
 def wait_for_challenges_page(driver):
@@ -460,43 +437,58 @@ def join_challenges(driver):
 
 def main():
     """Main function"""
+    display = None
     try:
+        print("\n=== Starting Garmin Challenge Joiner ===")
+        
         # Load environment variables
         load_dotenv()
-        
-        # Get credentials from environment variables
         email = os.getenv("GARMIN_CONNECT_USERNAME")
         password = os.getenv("GARMIN_CONNECT_PASSWORD")
         
         if not email or not password:
-            print("❌ Error: Missing Garmin Connect credentials")
-            print("Please set GARMIN_CONNECT_USERNAME and GARMIN_CONNECT_PASSWORD environment variables")
+            print("❌ Missing Garmin Connect credentials in .env file")
             return
         
-        print("\n=== Starting Garmin Challenge Joiner ===")
-        print("🔄 Initializing browser in headless mode...")
-        driver = setup_driver(headless=True)
+        print("🔄 Starting virtual display...")
+        display = Xvfb(width=1920, height=1080, colordepth=24)
+        display.start()
+        
+        print("🔄 Initializing browser...")
+        driver = setup_driver(headless=False)  # Use non-headless mode with Xvfb
         
         try:
             print("\n=== Logging in to Garmin Connect ===")
             if not login_to_garmin(driver, email, password):
                 print("❌ Failed to log in to Garmin Connect")
                 return
-                
-            # Join challenges
-            join_challenges(driver)
+            
+            print("\n=== Joining Available Challenges ===")
+            if join_challenges(driver):
+                print("✅ Successfully processed all challenges")
+            else:
+                print("❌ Failed to process challenges")
             
         except Exception as e:
-            print(f"\n❌ Script failed: {str(e)}")
+            logger.error(f"Error during execution: {str(e)}")
+            raise
         finally:
-            # Always close the browser
+            logger.info("Cleaning up resources...")
+            try:
+                driver.quit()
+            except Exception as e:
+                logger.error(f"Error while closing driver: {str(e)}")
+    
+    except Exception as e:
+        print(f"\n❌ Script failed: {str(e)}")
+        if 'driver' in locals():
             try:
                 driver.quit()
             except:
                 pass
-            
-    except Exception as e:
-        print(f"\n❌ Script failed: {str(e)}")
+    finally:
+        if display:
+            display.stop()
 
 if __name__ == "__main__":
     main()

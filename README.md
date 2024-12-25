@@ -84,7 +84,7 @@ Add to crontab to run daily:
 crontab -e
 
 # Add this line to run daily at 2 AM (adjust paths as needed)
-0 2 * * * cd /path/to/garmin-badges-sync && source venv/bin/activate && python garmin-badges-updater.py >> sync.log 2>&1
+0 2 * * * cd /path/to/garmin-badges-sync && source venv/bin/activate && python3 garmin-badges-updater.py >> sync.log 2>&1
 ```
 
 #### Using Task Scheduler (Windows)
