@@ -37,24 +37,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure Cloudflare Certificate (if using Cloudflare WARP)
-```bash
-# Install certifi
-pip install certifi
-
-# Download Cloudflare root certificate
-wget https://developers.cloudflare.com/cloudflare-one/static/documentation/connections/Cloudflare_CA.pem
-
-# Append to CA store
-cat Cloudflare_CA.pem >> $(python -m certifi)
-
-# Set environment variables
-export CERT_PATH=$(python -m certifi)
-export SSL_CERT_FILE=${CERT_PATH}
-export REQUESTS_CA_BUNDLE=${CERT_PATH}
-```
-
-### 4. Set Up Environment Variables
+### 3. Set Up Environment Variables
 Create a `.env` file in the project root:
 ```bash
 GARMIN_BADGES_USERNAME=your_garminbadges_username
