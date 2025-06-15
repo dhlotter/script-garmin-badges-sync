@@ -215,22 +215,6 @@ def setup_driver(headless=True):
             logger.error(f"WebDriver error details: {e.msg}")
         raise
 
-def check_cloudflare(driver, url):
-    """Check if Cloudflare verification is needed"""
-    try:
-        driver.get(url)
-        time.sleep(2)
-        
-        # Check for Cloudflare elements
-        cloudflare_elements = driver.find_elements(By.ID, "challenge-stage")
-        if cloudflare_elements:
-            logger.info("Cloudflare verification detected")
-            return True
-            
-        return False
-    except Exception as e:
-        logger.error(f"Error checking Cloudflare: {str(e)}")
-        return False
 
 def login_to_garmin(driver, email, password):
     """Log in to Garmin Connect"""
