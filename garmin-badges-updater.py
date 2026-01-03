@@ -4,10 +4,32 @@ version="1.4.0"
 
 """
 Source: https://garminbadges.com/upload/garminbadges-updater.py
-A script to sync Garmin badges with garminbadges.com
+
+Change log:
+1.4 Command line arguments to open web pages and more.
+1.3 Fetched joined date for expeditions.
+1.2 Version check. POST data in all requests.
+1.1 Threading to speed it up. 
+1.0 First release
+
+Requirements:
+Python3 and pip3 installation.
+
+The python command can be different for different installs: python3, python or py
+
+Run this before you run the script to install the dependencies:
+python -m pip install garth
+
+To run this script run:
+python garminbadges-updater.py
+
+It will ask for Garmin badges credentials and then Garmin Connect credentials. It will also ask for MFA key is MFA is activated in your Garmin Account.
+To remove all credentials and start over delete the folder ~/.garth and run the script again or start the script with the argument: clear
+
 """
 
 import garth
+from getpass import getpass
 import requests
 import sys
 import json
@@ -17,308 +39,251 @@ from threading import Thread
 import threading
 from pathlib import Path
 import webbrowser
-from dotenv import load_dotenv
-import datetime
-import time
-import undetected_chromedriver as uc
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+#import time
 
-# Global variables
 userId = 0
 updateKey = ""
 pythonVersion = ""
 debugMode = False
-logger = None
-
-# Load environment variables
-load_dotenv()
-
-def setup_logging():
-    """Configure logging with simple format"""
-    global logger
-    logger = logging.getLogger('garmin_badges_sync')
-    logHandler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        fmt='%(asctime)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    logHandler.setFormatter(formatter)
-    logger.addHandler(logHandler)
-    logger.setLevel(logging.DEBUG if debugMode else logging.INFO)
 
 def main():
-    try:
-        # Set up logging
-        setup_logging()
-        logger.info("Starting Garmin badges sync")
+	#start_time = time.time()
 
-        handleArguments(sys.argv)
-        if(debugMode):
-            logger.info("Garmin Badges Updater v." + version)
-            logger.info("Verbose/debug mode enabled")
-            logger.info("Script started with command: " + ' '.join(sys.argv))
+	handleArguments(sys.argv)
+	if(debugMode):
+		printVersion()
+		print("Verbose/debug mode enabled")
+		print("Script started with command: " + ' '.join(sys.argv))
 
-        configFileName = getConfigFileNameAndMakeSureFolderExists()
-        loginToGarminBadgesAndConnect(configFileName)
-        fetchUserInfoFromGarminBadgesToGlobalVariables(configFileName)
-        doVersionCheck(pythonVersion, version)
+	global userId, updateKey
 
-        # Fetch earned badges from Garmin
-        logger.info("Fetching earned badges from Garmin")
-        garminEarnedJson = garth.connectapi("/badge-service/badge/earned")
-        logger.info(f"Found {len(garminEarnedJson)} earned badges")
+	configFileName = getConfigFileNameAndMakeSureFolderExists()
 
-        # Process badge data
-        logger.info("Processing badge data")
-        strippedGarminEarnedJson = createGarminBadgesJson(garminEarnedJson, updateKey)
+	print("Starting Garmin badges sync...")
+	loginToGarminBadgesAndConnect(configFileName)
 
-        # Post to Garmin Badges
-        logger.info("Posting earned badges to Garmin Badges")
-        badgesToFetch = postJsonToGarminbadges(strippedGarminEarnedJson, "https://garminbadges.com/api/index.php/user/earned")
+	print("Fetching user info from Garmin Badges...")
+	fetchUserInfoFromGarminBadgesToGlobalVariables(configFileName)
 
-        # Fetch detailed badge information
-        logger.info("Fetching detailed badge information")
-        garminBadgeJsonArray = fetchBadgesFromGarmin(badgesToFetch.json())
-        logger.info(f"Retrieved details for {len(garminBadgeJsonArray)} badges")
+	doVersionCheck(pythonVersion, version)
 
-        # Process badge details
-        logger.info("Processing badge details")
-        garminBadgeJson = createGarminBadgesJson(garminBadgeJsonArray, updateKey)
+	# Fetch earned Json from Garmin.
+	print("Fetching earned badges from Garmin Connect...")
+	garminEarnedJson = garth.connectapi("/badge-service/badge/earned")
+	print(f"Found {len(garminEarnedJson)} earned badges")
 
-        # Post final data
-        logger.info("Posting final badge data to Garmin Badges")
-        gbBadgeResponse = postJsonToGarminbadges(garminBadgeJson, "https://garminbadges.com/api/index.php/user/challenges")
-        logger.info("Successfully synced badges with Garmin Badges")
+	# createGarminBadgesJson
+	strippedGarminEarnedJson = createGarminBadgesJson(garminEarnedJson, updateKey);
 
-        # Open web pages
-        openWebPages(sys.argv)
+	# POST stripped Json to Garmin Badges and get badgeIds to fetch from Garmin.
+	print("Posting earned badges to Garmin Badges...")
+	badgesToFetch = postJsonToGarminbadges(strippedGarminEarnedJson, "https://garminbadges.com/api/index.php/user/earned")
 
-        if(debugMode):
-            logger.info("Script ended.")
+	# Fetch badges from Garmin
+	print(f"Fetching detailed info for {len(badgesToFetch.json())} badges...")
+	garminBadgeJsonArray = fetchBadgesFromGarmin(badgesToFetch.json());
 
-    except Exception as e:
-        logger.error(f"An error occurred: {str(e)}")
-        sys.exit(1)
+	# createGarminBadgesJson.
+	garminBadgeJson = createGarminBadgesJson(garminBadgeJsonArray, updateKey);
+
+	# POST the new badge json to Garmin Badges.
+	print("Posting badge details to Garmin Badges...")
+	gbBadgeResponse = postJsonToGarminbadges(garminBadgeJson, "https://garminbadges.com/api/index.php/user/challenges")
+	print("✓ Successfully synced badges!")
+
+	# Open web pages
+	openWebPages(sys.argv)
+
+	if(debugMode):
+		print("Script ended.")
+
+	#print("--- %s seconds ---" % (time.time() - start_time))
 
 def getConfigFileNameAndMakeSureFolderExists():
-    configDir = os.path.expanduser('~') + "/.garminbadges/"
-    configFileName = configDir + "config.json"
-    Path(configDir).mkdir(parents=True, exist_ok=True)
-    return configFileName
+	configDir = os.path.expanduser('~') + "/.garminbadges/"
+	configFileName = configDir + "config.json"
+	Path(configDir).mkdir(parents=True, exist_ok=True)
+	return configFileName
 
 def handleArguments(arguments):
-    global debugMode
+	global debugMode
 
-    if "--version" in sys.argv:
-        printVersion()
-        sys.exit(0)
-    if "--help" in sys.argv:
-        printHelp()
-        sys.exit(0)
-    if "--V" in sys.argv:
-        debugMode = True
+	if "--version" in sys.argv:
+		printVersion()
+		sys.exit(0)
+	if "--help" in sys.argv:
+		printHelp()
+		sys.exit(0)
+	if "--V" in sys.argv:
+		debugMode = True
+
 
 def loginToGarminBadgesAndConnect(configFileName):
-    try:
-        # Check if config file exists
-        f = open(configFileName, "r")
+	try:
+		# Check if config file exists
+		f = open(configFileName, "r")
                 
-        if "--clear" in sys.argv:
-            raise Exception
-            
-        garth.resume("~/.garth")
-        garth.client.username
-        
-    except Exception as e:
-        if(debugMode):
-            logger.info("Session expired or an error occurred. Attempting to log in with environment variables")
-            
-        # Get credentials from environment variables
-        gb_username = os.getenv('GARMIN_BADGES_USERNAME')
-        gb_email = os.getenv('GARMIN_BADGES_EMAIL')
-        gc_email = os.getenv('GARMIN_CONNECT_USERNAME')
-        gc_password = os.getenv('GARMIN_CONNECT_PASSWORD')
-        
-        # Validate all required credentials are present
-        if not all([gb_username, gb_email, gc_email, gc_password]):
-            logger.error("Error: Missing required environment variables. Please ensure your .env file contains:")
-            logger.error("GARMIN_BADGES_USERNAME")
-            logger.error("GARMIN_BADGES_EMAIL")
-            logger.error("GARMIN_CONNECT_USERNAME")
-            logger.error("GARMIN_CONNECT_PASSWORD")
-            sys.exit(1)
+		if "--clear" in sys.argv:
+			raise Exception
+		garth.resume("~/.garth")
+		garth.client.username
+	except Exception as e:
+		if(debugMode):
+			print("Session is expired or an error occured. You'll need to log in again");
+		gbUsername = input("Enter Garmin Badges username: ")
+		gbEmail = input("Enter Garmin Badges email: ")
 
-        # Save Garmin Badges config
-        config = {"gbUsername": gb_username, "gbEmail": gb_email}
-        with open(configFileName, 'w') as f:
-            json.dump(config, f)
-            logger.info("Saved Garmin Badges configuration")
+		config = {"gbUsername": gbUsername, "gbEmail": gbEmail}
 
-        # Configure Garth session and login
-        garth.configure()
-        logger.info("Logging in to Garmin Connect...")
-        garth.login(gc_email, gc_password)
-        garth.save("~/.garth")
-        logger.info("Successfully logged in to Garmin Connect")
+		with open(configFileName, 'w') as f:
+			json.dump(config, f)
+
+		gcEmail = input("Enter Garmin Connect username: ")
+		gcPassword = getpass("Enter Garmin Connect password: ")
+		# If there's MFA, you'll be prompted during the login
+		garth.login(gcEmail, gcPassword)
+		garth.save("~/.garth")
 
 def fetchUserInfoFromGarminBadgesToGlobalVariables(configFileName):
-    global pythonVersion, updateKey, userId
+	global pythonVersion, updateKey, userId
 
-    with open(configFileName, 'r') as f:
-        config = json.load(f)
+	with open(configFileName, 'r') as f:
+		config = json.load(f)
 
-    # Get update key and user id from garminbadges.com
-    updateKeyJson = {
-        "username": config["gbUsername"],
-        "email": config["gbEmail"]
-    }
-    response = postJsonToGarminbadges(updateKeyJson, "https://garminbadges.com/api/index.php/user/updatekey")
-    userId = response.json()["id"]
-    updateKey = response.json()["update_key"]
-    pythonVersion = response.json()["python_script_version"]
-    logger.info(f"Retrieved user info (user ID: {userId})")
+	# Get update key and user id from garminbadges.com
+	updateKeyJson = {
+		"username": config["gbUsername"],
+		"email": config["gbEmail"]
+	}
+	response = postJsonToGarminbadges(updateKeyJson, "https://garminbadges.com/api/index.php/user/updatekey")
+	userId = response.json()["id"]
+	updateKey = response.json()["update_key"]
+	pythonVersion = response.json()["python_script_version"]
 
 def doVersionCheck(latestVersion, currentVersion):
-    if (latestVersion == currentVersion):
-        return
-    else:
-        latestVersionArray = [int(num) for num in latestVersion.split('.')]
-        currentVersionArray = [int(num) for num in currentVersion.split('.')]
+	if (latestVersion == currentVersion):
+		return
+	else:
+		latestVersionArray = [int(num) for num in latestVersion.split('.')]
+		currentVersionArray = [int(num) for num in currentVersion.split('.')]
 
-        # Ignore patch version
-        latestVersionArray.pop()
-        currentVersionArray.pop()
+		# Ignore patch version
+		latestVersionArray.pop()
+		currentVersionArray.pop()
 
-        for latestVersionValue, currentVersionValue in zip(latestVersionArray, currentVersionArray):
-            if latestVersionValue > currentVersionValue:
-                logger.error(f"Script is outdated and will not run. Get the latest version (v.{latestVersion}) at https://garminbadges.com/upload/garminbadges-updater.py")
-                sys.exit(1)
+		for latestVersionValue, currentVersionValue in zip(latestVersionArray, currentVersionArray):
+			if latestVersionValue > currentVersionValue:
+				print("Script is outdated and will not run. Get the latest version (v.{}) at https://garminbadges.com/upload/garminbadges-updater.py".format(latestVersion))
+				sys.exit()
 
 def fetchOneBadgeFromGarmin(badgeNo, badgeUuid, badgeJson):
-    try:
-        # First try to get the basic badge details
-        garminBadgeResponse = garth.connectapi("/badge-service/badge/detail/v2/" + str(badgeNo))
-        
-        # If we have a UUID, try to get challenge details, but don't fail if 404
-        if badgeUuid:
-            try:
-                garminBadgeResponseUuid = garth.connectapi("/badgechallenge-service/badgeChallenge/" + badgeUuid)
-                garminBadgeResponse["joinDateLocal"] = garminBadgeResponseUuid["joinDateLocal"]
-            except Exception as e:
-                if "404" in str(e):
-                    # This is likely a retired challenge badge, just log it and continue
-                    logger.debug(f"Badge {badgeNo} appears to be retired (404 on challenge details)")
-                    garminBadgeResponse["joinDateLocal"] = None
-                else:
-                    # For other errors, log them but continue
-                    logger.warning(f"Non-404 error fetching challenge details for badge {badgeNo}: {str(e)}")
-                    garminBadgeResponse["joinDateLocal"] = None
-        
-        badgeJson.append(garminBadgeResponse)
-        return True
-        
-    except Exception as e:
-        if "404" in str(e):
-            logger.debug(f"Badge {badgeNo} not found (404)")
-        else:
-            logger.error(f"Error fetching badge {badgeNo}: {str(e)}")
-        
-        # Add an empty response to maintain array indexing
-        badgeJson.append("")
-        return False
+	try:
+		garminBadgeResponse = garth.connectapi("/badge-service/badge/detail/v2/" + str(badgeNo))
+		if badgeUuid:
+			garminBadgeResponseUuid = garth.connectapi("/badgechallenge-service/badgeChallenge/" + badgeUuid)
+			garminBadgeResponse["joinDateLocal"] = garminBadgeResponseUuid["joinDateLocal"]
+		badgeJson.append(garminBadgeResponse)
+	except Exception as e:
+		if not garminBadgeResponse:
+			badgeJson.append("")
+		else:
+			badgeJson.append(garminBadgeResponse)
+	return True
 
 def fetchBadgesFromGarmin(badgesToFetch):
-    NO_OF_THREADS_BEFORE_START = threading.active_count()
-    badgeJson = []
-    threads = []
-    threadIndex = 0
-    maxNumberOfRunningThreads = 10
+	NO_OF_THREADS_BEFORE_START = threading.active_count()
+	badgeJson = []
+	threads = []
+	threadIndex = 0
+	runningThreads = 0
+	
+	maxNumberOfRunningThreads = 10
 
-    # Create all threads
-    for badge in badgesToFetch:
-        process = Thread(target=fetchOneBadgeFromGarmin, args=[badge["badgeNo"], badge["badgeUuid"], badgeJson])
-        threads.append(process)
+	# Create all threads
+	for badge in badgesToFetch:
+		process = Thread(target=fetchOneBadgeFromGarmin, args=[badge["badgeNo"], badge["badgeUuid"], badgeJson])
+		threads.append(process)
 
-    # Limit the number of started threads
-    while len(badgeJson) < len(threads):
-        if(threadIndex < len(threads) and threading.active_count() - NO_OF_THREADS_BEFORE_START < maxNumberOfRunningThreads):
-            threads[threadIndex].start()
-            threadIndex += 1
-    return badgeJson
+	# Limit the number of started threads to not exceed the thread pool
+	while len(badgeJson) < len(threads):
+		if(threadIndex < len(threads) and threading.active_count() - NO_OF_THREADS_BEFORE_START < maxNumberOfRunningThreads):
+			threads[threadIndex].start()
+			threadIndex += 1
+	return badgeJson
+
 
 def postJsonToGarminbadges(json, url):
-    headers = {'Content-type': 'application/json'}
-    return requests.post(url, headers=headers, json=json, verify=True)
+	headers = {'Content-type': 'application/json'}
+	return requests.post(url, headers=headers, json=json)
 
 def createGarminBadgesJson(json, updateKey):
-    newJson = []
-    joinDateLocal = None
+	newJson = []
+	joinDateLocal = None;
 
-    unitArray = {
-        1: "mi_km",
-        2: "ft_m",
-        3: "activities",
-        4: "days",
-        5: "steps",
-        6: "mi",
-        7: "seconds"
-    }
+	unitArray = {
+		1: "mi_km",
+		2: "ft_m",
+		3: "activities",
+		4: "days",
+		5: "steps",
+		6: "mi",
+		7: "seconds"
+	}
 
-    for badge in json:
-        if not badge:
-            continue
-        badgeUnit = ""
-        try:
-            badgeUnit = unitArray[badge["badgeUnitId"]]
-        except KeyError:
-            badgeUnit = ""
+	for badge in json:
+		if not badge:
+			continue
+		badgeUnit = ""
+		try:
+			badgeUnit = unitArray[badge["badgeUnitId"]]
+		except KeyError as e:
+			badgeUnit = ""
 
-        if "joinDateLocal" in badge:
-            joinDateLocal = badge["joinDateLocal"]
-            
-        newBadge = {
-            "badgeId": badge["badgeId"],
-            "badgeName": badge["badgeName"],
-            "count": badge["badgeEarnedNumber"],
-            "earned_date": badge["badgeEarnedDate"],
-            "badgeProgressValue": badge["badgeProgressValue"],
-            "badgeTargetValue": badge["badgeTargetValue"],
-            "badgeUnit": badgeUnit,
-            "userJoined": True if badge["userJoined"] else False,
-            "joinDateLocal": joinDateLocal,
-            "createdBy": "Python script v." + version
-        }
-        newJson.append(newBadge)
+		if "joinDateLocal" in badge:
+			joinDateLocal = badge["joinDateLocal"]
+			
+		newBadge = {
+			"badgeId": badge["badgeId"],
+			"badgeName": badge["badgeName"],
+			"count": badge["badgeEarnedNumber"],
+			"earned_date": badge["badgeEarnedDate"],
+			"badgeProgressValue": badge["badgeProgressValue"],
+			"badgeTargetValue": badge["badgeTargetValue"],
+			"badgeUnit": badgeUnit,
+			"userJoined": True if badge["userJoined"] else False,
+			"joinDateLocal": joinDateLocal,
+			"createdBy": "Python script v." + version
+		}
+		newJson.append(newBadge);
 
-    newJson = {
-        "update_key": updateKey,
-        "badges": newJson
-    }
+	newJson = {
+		"update_key": updateKey,
+		"badges": newJson
+	}
 
-    return newJson
+	return newJson
+
 
 def openWebPages(arguments):
-    global userId
-    if "--open-badges" in sys.argv:
-        webbrowser.open_new_tab("https://garminbadges.com/index.php?userId=" + str(userId))
-    if "--open-challenges" in sys.argv:
-        webbrowser.open_new_tab("https://garminbadges.com/challenges.php?userId=" + str(userId))
+	global userId
+	if "--open-badges" in sys.argv:
+		webbrowser.open_new_tab("https://garminbadges.com/index.php?userId=" + str(userId))
+	if "--open-challenges" in sys.argv:
+		webbrowser.open_new_tab("https://garminbadges.com/challenges.php?userId=" + str(userId))
 
 def printVersion():
-    logger.info("Garmin Badges Updater v." + version)
+	print("Garminbadges Updater v." + version)
 
 def printHelp():
-    logger.info("Usage: garminbadges-updater.py [options]\n")
-    logger.info("Options and arguments:")
-    logger.info("   --clear           : Enter user credentials again.")
-    logger.info("   --help            : This information about options and arguments.")
-    logger.info("   --open-badges     : Open badge page after update.")
-    logger.info("   --open-challenges : Open challenge page after update.")
-    logger.info("   --version         : Print version of the script.")
-    logger.info("   --V               : Verbose/debug mode.")
+	print("Usage: garminbadges-updater.py [options]\n")
+	print("Options and arguments:")
+	print("   --clear           : Enter user credentials again.")
+	print("   --help            : This information about options and arguments.")
+	print("   --open-badges     : Open badge page after update.")
+	print("   --open-challenges : Open challenge page after update.")
+	print("   --version         : Print version of the script.")
+	print("   --V               : Verbose/debug mode.")
+
 
 if __name__ == "__main__":
-    main()
+	main()
